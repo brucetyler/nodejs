@@ -13,7 +13,7 @@ const getCookieExpires = () => {
 }
 
 // // session 数据
-// const SESSION_DATA = {}
+const SESSION_DATA = {}
 
 // 用于处理 post data
 const getPostData = (req) => {
@@ -57,21 +57,72 @@ const serverHandle = (req, res) => {
     // 解析 query
     req.query = querystring.parse(url.split('?')[1])
 
-    const blogResult=handleBlogRouter(req,res)
-    if(blogResult){     
-        blogResult.then(blogData=>{
-            res.end(
-                JSON.stringify(blogData)
-            )    
-        })
-        return;
-    }   
+    //解析 cookie
+    req.cookie={}
+    const cookieStr = req.headers.cookie || ''
+    cookieStr.split(';').forEach(element => {
+        if (!element){
+            return
+        }
+        const arr=element.split('=');
+        const key = arr[0].trim();
+        const val = arr[1].trim();
+        req.cookie[key] = val
+    });
+    // console.log('cookie is ' + JSON.stringify(req.cookie))
 
-    res.writeHead(404, {
-        "Content-type": "text/plain"
+    // 解析session
+    let needSetCookie=false;
+    let userId = req.cookie.userId
+    if(userId){
+        if (!SESSION_DATA[userId]){
+            SESSION_DATA[userId]={}
+        }
+        req.session = SESSION_DATA[userId]
+    }
+    else{
+        needSetCookie=true
+        userId=`${Date.now()}_${Math.random()}`
+        SESSION_DATA[userId] = {}
+    }
+    req.session = SESSION_DATA[userId]
+
+    getPostData(req).then(data => {
+        req.body=data;
+        const blogResult = handleBlogRouter(req, res)
+        if (blogResult) {
+            blogResult.then(blogData => {
+                if (needSetCookie){
+                    res.setHeader('Set-cookie', `userId=${userId}; path=/; httpOnly; expires=${getCookieExpires()}`)
+
+                }
+                res.end(
+                    JSON.stringify(blogData)
+                )
+            })
+            return;
+        }
+
+        const userResult = handleUserRouter(req, res)
+        if (userResult) {
+            userResult.then(userData => {
+                if (needSetCookie) {
+                    res.setHeader('Set-cookie', `userId=${userId}; path=/; httpOnly; expires=${getCookieExpires()}`)
+
+                }
+                res.end(
+                    JSON.stringify(userData)
+                )
+            })
+            return;
+        }
+
+        res.writeHead(404, {
+            "Content-type": "text/plain"
+        })
+        res.write("404 Not Found\n")
+        res.end()
     })
-    res.write("404 Not Found\n")
-    res.end()
 }
 
 module.exports = serverHandle
